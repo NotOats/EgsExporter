@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "EgsExporter": {
+      "commandName": "Project"
+    },
+    "Export - Traders": {
+      "commandName": "Project",
+      "commandLineArgs": "traders \"D:\\Games\\SteamLibrary\\steamapps\\workshop\\content\\383120\\3143225812\""
+    }
+  }
+}
