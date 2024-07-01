@@ -18,12 +18,12 @@ namespace EgsExporter.Commands
         [CommandOption("-o|--output")]
         [Description("Changes the export output directory")]
         [DefaultValue("./output")]
-        public string? OutputPath { get; set; }
+        public string OutputPath { get; set; } = "./output";
 
         [CommandOption("-t|--type")]
         [Description("How to export the data")]
         [DefaultValue(ExportType.Console)]
-        public ExportType ExportType { get; set; }
+        public ExportType ExportType { get; set; } = ExportType.Console;
 
         public override ValidationResult Validate()
         {

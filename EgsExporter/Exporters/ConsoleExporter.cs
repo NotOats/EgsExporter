@@ -23,6 +23,11 @@ namespace EgsExporter.Exporters
             _table.AddRow(entries);
         }
 
+        public void Flush()
+        {
+            AnsiConsole.Write(_table);
+        }
+
         public void SetHeader(IEnumerable<string> values)
         {
             if (Interlocked.Exchange(ref _headerSet, 1) != 0)
@@ -33,11 +38,6 @@ namespace EgsExporter.Exporters
                 var column = new TableColumn(value);
                 _table.AddColumn(column);
             }
-        }
-
-        public void Flush()
-        {
-            AnsiConsole.Write(_table);
         }
     }
 }

@@ -31,9 +31,13 @@ namespace EgsExporter.Commands
     {
         public override int Execute(CommandContext context, ExportTradersConfig settings)
         {
+            if (settings.ExportType != ExportType.Console && !Directory.Exists(settings.OutputPath))
+                Directory.CreateDirectory(settings.OutputPath);
+
             IDataExporter? exporter = settings.ExportType switch
             {
                 ExportType.Console => new ConsoleExporter(),
+                ExportType.Csv => new CsvExporter(Path.Combine(settings.OutputPath!, "Traders.csv")),
                 _ => null
             };
 
@@ -43,12 +47,11 @@ namespace EgsExporter.Commands
                 return 1;
             }
 
+            AnsiConsole.WriteLine($"Exporting to {settings.ExportType}");
+
             exporter.SetHeader(["Name", "Discount", "Type", "Item", "Price", "Quantity"]);
 
-            // TODO: Add localization support
-            var ecf = new EcfFile(settings.TraderFilePath!);
-            var objects = ecf.ParseObjects();
-
+            var objects = new EcfFile(settings.TraderFilePath!).ParseObjects();
             if (objects == null)
             {
                 AnsiConsole.WriteLine($"Error: Failed to parase traders file at {settings.TraderFilePath}");
@@ -64,6 +67,7 @@ namespace EgsExporter.Commands
                 {
                     var value = buyable.BuyMarketFactor ? $"mf={buyable.BuyValue}" : buyable.BuyValue.ToString();
 
+                    // TODO: Add localization support
                     exporter.ExportRow([trader.Name, trader.Discount ?? 1, "Buy", buyable.Name, value, buyable.BuyAmount]);
                 }
 
@@ -72,6 +76,7 @@ namespace EgsExporter.Commands
                 {
                     var value = sellable.SellMarketFactor ? $"mf={sellable.BuyValue}" : sellable.BuyValue.ToString();
 
+                    // TODO: Add localization support
                     exporter.ExportRow([trader.Name, trader.Discount ?? 1, "Sell", sellable.Name, value, sellable.SellAmount]);
                 }
             }
