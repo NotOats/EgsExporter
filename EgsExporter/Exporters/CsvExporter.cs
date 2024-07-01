@@ -31,7 +31,7 @@ namespace EgsExporter.Exporters
             Flush();
             _csv.Dispose();
 
-            _disposed = 0;
+            Interlocked.Exchange(ref _disposed, 1);
         }
 
         public void ExportRow(IEnumerable<object> values)
