@@ -9,6 +9,7 @@ using Spectre.Console.Cli;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -17,6 +18,10 @@ namespace EgsExporter.Commands
 {
     public class ExportTraderSpreadsheetSettings : BaseExportSettings
     {
+        [CommandOption("--localization-file", IsHidden = true)]
+        [Description("The localization file to use")]
+        public string? LocalizationFilePath { get; set; }
+
         [CommandOption("--trader-file", IsHidden = true)]
         [Description("The trader file to use")]
         public string? TraderFilePath { get; set; }
@@ -40,6 +45,10 @@ namespace EgsExporter.Commands
                 return b;
 
             // Fix up paths
+            LocalizationFilePath ??= Path.Combine(ScenarioPath!, @"Extras\Localization.csv");
+            if (!File.Exists(LocalizationFilePath))
+                return ValidationResult.Error("Localization file does not exist");
+
             TraderFilePath ??= Path.Combine(ScenarioPath!, @"Content\Configuration\TraderNPCConfig.ecf");
             if (!File.Exists(TraderFilePath))
                 return ValidationResult.Error("Trader file does not exist");
@@ -67,14 +76,30 @@ namespace EgsExporter.Commands
         {
             // Preload all relevant data
             //
+            // Localization
+            var localization = new Localization(settings.LocalizationFilePath!);
+
             // Configuration files
-            var dialogues = Dialogue.ReadFile(settings.DialogueFilePath!);
-            var traders = Trader.ReadFile(settings.TraderFilePath!);
+            IEnumerable<Dialogue> dialogues;
+            IEnumerable<Trader> traders;
+            using (new Timer(t => AnsiConsole.WriteLine($"Loaded configuration files in {t.TotalMilliseconds:n0}ms")))
+            {
+                dialogues = Dialogue.ReadFile(settings.DialogueFilePath);
+                traders = Trader.ReadFile(settings.TraderFilePath);
+            }
 
             // Blueprint & Playfield caches
-            var entityNameBlueprintMap = CreateEntityBlueprintCache(settings.BlueprintFolder!);
-            var groupNamePlayfieldMap = new ScenarioPlayfields(settings.ScenarioPath!).ReadGroupNamePlayfieldMap();
+            Dictionary<string, List<BlueprintEntity>> entityNameBlueprintMap;
+            using (new Timer(t => AnsiConsole.WriteLine($"Loaded entityName blueprint map in {t.TotalMilliseconds:n0}ms")))
+            {
+                entityNameBlueprintMap = CreateEntityBlueprintCache(settings.BlueprintFolder!);
+            }
 
+            IReadOnlyDictionary<string, IList<Playfield>> groupNamePlayfieldMap;
+            using (new Timer(t => AnsiConsole.WriteLine($"Loaded groupName playfield map in {t.TotalMilliseconds:n0}ms")))
+            {
+                groupNamePlayfieldMap = new ScenarioPlayfields(settings.ScenarioPath!).ReadGroupNamePlayfieldMap();
+            }
 
             // Configure exporter
             //
@@ -102,15 +127,13 @@ namespace EgsExporter.Commands
                 // Load each column entry
                 //
                 var name = trader.Name;
-                // TODO: Localization support for Names
-                // var translated = localization.Localize(trader.Name, "English")
-                // if(translated != null)
-                //  name = $"{translated\n({name})}";
+                if (localization.TryLocalize(name, "English", out string? localizedName))
+                    name = $"{localizedName}\n({name})";
 
                 var poi = ParsePointsOfInterest(entities);
                 var playfields = ParsePlayfields(entities, groupNamePlayfieldMap);
-                var traderSells = ParseTraderSells(trader);
-                var traderBuys = ParseTraderBuys(trader);
+                var traderSells = ParseTraderSells(trader, localization);
+                var traderBuys = ParseTraderBuys(trader, localization);
                 var requiredItems = "Not Implemented Yet";
                 var reputation = "Not Implemented Yet";
                 var restockTime = ParseRestockTime(entities);
@@ -118,7 +141,10 @@ namespace EgsExporter.Commands
                 exporter.ExportRow([name, poi, playfields, traderSells, traderBuys, requiredItems, reputation, restockTime]);
             }
 
-            exporter.Flush();
+            using (new Timer(t => AnsiConsole.WriteLine($"Export to {settings.ExportType} finished in {t.TotalMilliseconds:n0}ms")))
+            {
+                exporter.Flush();
+            }
 
             return 0;
         }
@@ -151,7 +177,6 @@ namespace EgsExporter.Commands
                 _ => null
             };
 
-            AnsiConsole.WriteLine($"Exporting to {settings.ExportType}");
             return exporter;
         }
 
@@ -229,15 +254,19 @@ namespace EgsExporter.Commands
             return  string.Join('\n', sortedPlayfields);
         }
 
-        private static string ParseTraderSells(Trader trader)
+        private static string ParseTraderSells(Trader trader, Localization localization)
         {
             var sellsRaw = trader.Items
                 .Where(item => item.SellValue != Range<float>.Default)
                 .Where(item => item.SellAmount != Range<int>.Default)
                 .Select(item =>
                 {
+                    var name = item.Name;
+                    if (localization.TryLocalize(name, "English", out string? localizedName))
+                        name = localizedName;
+
                     var sb = new StringBuilder();
-                    sb.Append($"{item.Name}: ");
+                    sb.Append($"{name}: ");
                     if (item.SellMarketFactor)
                         sb.Append("mf=");
 
@@ -250,15 +279,19 @@ namespace EgsExporter.Commands
             return string.Join('\n', sellsRaw);
         }
 
-        private static string ParseTraderBuys(Trader trader)
+        private static string ParseTraderBuys(Trader trader, Localization localization)
         {
             var sellsRaw = trader.Items
                 .Where(item => item.BuyValue != Range<float>.Default)
                 .Where(item => item.BuyAmount != Range<int>.Default)
                 .Select(item =>
                 {
+                    var name = item.Name;
+                    if (localization.TryLocalize(name, "English", out string? localizedName))
+                        name = localizedName;
+
                     var sb = new StringBuilder();
-                    sb.Append($"{item.Name}: ");
+                    sb.Append($"{name}: ");
                     if (item.BuyMarketFactor)
                         sb.Append("mf=");
 
