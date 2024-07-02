@@ -4,14 +4,19 @@ using EgsLib.ConfigFiles.Ecf;
 using Spectre.Console;
 using Spectre.Console.Cli;
 using System.ComponentModel;
+using System.Text;
 
 namespace EgsExporter.Commands
 {
-    public class ExportTradersConfig : BaseExportSettings
+    public class ExportTradersSettings : BaseExportSettings
     {
         [CommandOption("--trader-file", IsHidden = true)]
         [Description("The trader file to export's full path")]
         public string? TraderFilePath { get; set; }
+
+        [CommandOption("--group-items")]
+        [Description("Group items at each trader for a single export entry")]
+        public bool GroupItems { get; set; } = false;
 
         public override ValidationResult Validate()
         {
@@ -27,9 +32,9 @@ namespace EgsExporter.Commands
         }
     }
 
-    public class ExportTraders : Command<ExportTradersConfig>
+    public class ExportTraders : Command<ExportTradersSettings>
     {
-        public override int Execute(CommandContext context, ExportTradersConfig settings)
+        public override int Execute(CommandContext context, ExportTradersSettings settings)
         {
             if (settings.ExportType != ExportType.Console && !Directory.Exists(settings.OutputPath))
                 Directory.CreateDirectory(settings.OutputPath);
@@ -49,7 +54,9 @@ namespace EgsExporter.Commands
 
             AnsiConsole.WriteLine($"Exporting to {settings.ExportType}");
 
-            exporter.SetHeader(["Name", "Discount", "Type", "Item", "Price", "Quantity"]);
+            exporter.SetHeader(settings.GroupItems ? 
+                ["Name", "Discount", "Buy", "Sell"] : 
+                ["Name", "Discount", "Type", "Item", "Price", "Quantity"]);
 
             var objects = new EcfFile(settings.TraderFilePath!).ParseObjects();
             if (objects == null)
@@ -62,28 +69,78 @@ namespace EgsExporter.Commands
             {
                 var trader = new Trader(obj);
 
-                // Buyables
-                foreach (var buyable in trader.Buys)
+                if (settings.GroupItems)
                 {
-                    var value = buyable.BuyMarketFactor ? $"mf={buyable.BuyValue}" : buyable.BuyValue.ToString();
-
-                    // TODO: Add localization support
-                    exporter.ExportRow([trader.Name, trader.Discount ?? 1, "Buy", buyable.Name, value, buyable.BuyAmount]);
+                    ExportGroupedItem(exporter, trader);
                 }
-
-                // Sellables
-                foreach (var sellable in trader.Sells)
+                else
                 {
-                    var value = sellable.SellMarketFactor ? $"mf={sellable.BuyValue}" : sellable.BuyValue.ToString();
-
-                    // TODO: Add localization support
-                    exporter.ExportRow([trader.Name, trader.Discount ?? 1, "Sell", sellable.Name, value, sellable.SellAmount]);
+                    ExportSingleItems(exporter, trader);
                 }
             }
 
             exporter.Flush();
 
             return 0;
+        }
+
+        private static void ExportGroupedItem(IDataExporter exporter, Trader trader)
+        {
+            // Buyables
+            var sb = new StringBuilder();
+            foreach (var item in trader.Buys)
+            {
+                sb.Append($"{item.Name}: ");
+
+                if (item.BuyMarketFactor)
+                    sb.Append("mf=");
+
+                sb.Append($"{item.BuyValue}, ");
+                sb.AppendLine(item.BuyAmount.ToString());
+            }
+
+            var buy = sb;
+
+            // Sellables
+            sb = new StringBuilder();
+            foreach (var item in trader.Sells)
+            {
+                sb.Append($"{item.Name}: ");
+
+                if (item.SellMarketFactor)
+                    sb.Append("mf=");
+
+                sb.Append($"{item.SellValue}, ");
+                sb.AppendLine(item.SellAmount.ToString());
+            }
+
+            var sell = sb;
+
+            exporter.ExportRow([trader.Name, trader.Discount ?? 1, buy, sell]);
+        }
+
+        private static void ExportSingleItems(IDataExporter exporter, Trader trader)
+        {
+            var name = trader.Name;
+            var discount = trader.Discount ?? 1;
+
+            // Buyables
+            foreach (var buyable in trader.Buys)
+            {
+                var value = buyable.BuyMarketFactor ? $"mf={buyable.BuyValue}" : buyable.BuyValue.ToString();
+
+                // TODO: Add localization support
+                exporter.ExportRow([name, discount, "Buy", buyable.Name, value, buyable.BuyAmount]);
+            }
+
+            // Sellables
+            foreach (var sellable in trader.Sells)
+            {
+                var value = sellable.SellMarketFactor ? $"mf={sellable.BuyValue}" : sellable.BuyValue.ToString();
+
+                // TODO: Add localization support
+                exporter.ExportRow([name, discount, "Sell", sellable.Name, value, sellable.SellAmount]);
+            }
         }
     }
 }
