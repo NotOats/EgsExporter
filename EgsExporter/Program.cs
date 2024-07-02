@@ -11,6 +11,10 @@ app.Configure(config =>
         .WithExample("traders", @"""C:\Path\To\Empyrion - Galactic Survival""", "--type=Csv")
         .WithExample("traders", @"""C:\Path\To\Empyrion - Galactic Survival""", "--type=Console", "--group-items=true");
 
+    config.AddCommand<ExportTraderSpreadsheet>("trader-spreadsheet")
+        .WithDescription("Exports a fully functional Trader spreadsheet")
+        .WithExample("trader-spreadsheet", @"""C:\Path\To\Empyrion - Galactic Survival""", "--type=Csv", "--output=\"./vanilla\"");
+
 #if DEBUG
     config.PropagateExceptions();
     config.ValidateExamples();

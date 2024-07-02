@@ -5,7 +5,11 @@
     },
     "Export - Traders": {
       "commandName": "Project",
-      "commandLineArgs": "traders \"D:\\Games\\SteamLibrary\\steamapps\\workshop\\content\\383120\\3143225812\""
+      "commandLineArgs": "traders \"D:\\Games\\SteamLibrary\\steamapps\\workshop\\content\\383120\\3143225812\" --type=Console --group-items=true"
+    },
+    "Export - Trader Spreadsheet": {
+      "commandName": "Project",
+      "commandLineArgs": "trader-spreadsheet \"D:\\Games\\SteamLibrary\\steamapps\\workshop\\content\\383120\\3143225812\" --type=Csv"
     }
   }
 }
