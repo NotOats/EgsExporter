@@ -126,5 +126,21 @@ namespace EgsExporter.GameData
                 .Where(x => x != null)
                 .Cast<BlueprintSlim>();
         }
+
+        public static Dictionary<string, List<BlueprintEntity>> CreateEntityBlueprintCache(string folderName)
+        {
+            var cache = new Dictionary<string, List<BlueprintEntity>>();
+            var blueprints = BlueprintSlim.ReadFolder(folderName);
+
+            foreach (var ent in blueprints.SelectMany(x => x.Entities))
+            {
+                if (!cache.TryGetValue(ent.Type, out List<BlueprintEntity>? value) || value == null)
+                    cache[ent.Type] = [ent];
+                else
+                    cache[ent.Type].Add(ent);
+            }
+
+            return cache;
+        }
     }
 }

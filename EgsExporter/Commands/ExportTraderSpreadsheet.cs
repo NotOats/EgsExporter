@@ -6,13 +6,8 @@ using EgsLib.Playfields;
 using EgsLib.Playfields.Files;
 using Spectre.Console;
 using Spectre.Console.Cli;
-using System;
-using System.Collections.Generic;
 using System.ComponentModel;
-using System.Diagnostics;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace EgsExporter.Commands
 {
@@ -74,243 +69,346 @@ namespace EgsExporter.Commands
     {
         public override int Execute(CommandContext context, ExportTraderSpreadsheetSettings settings)
         {
-            // Preload all relevant data
-            //
-            // Localization
-            var localization = new Localization(settings.LocalizationFilePath!);
-
-            // Configuration files
-            IEnumerable<Dialogue> dialogues;
-            IEnumerable<Trader> traders;
-            using (new Timer(t => AnsiConsole.WriteLine($"Loaded configuration files in {t.TotalMilliseconds:n0}ms")))
+            try
             {
-                dialogues = Dialogue.ReadFile(settings.DialogueFilePath);
-                traders = Trader.ReadFile(settings.TraderFilePath);
+                var spreadsheetData = new TradeSpreadsheetData(settings);
+                spreadsheetData.Export();
             }
-
-            // Blueprint & Playfield caches
-            Dictionary<string, List<BlueprintEntity>> entityNameBlueprintMap;
-            using (new Timer(t => AnsiConsole.WriteLine($"Loaded entityName blueprint map in {t.TotalMilliseconds:n0}ms")))
+            catch (Exception ex)
             {
-                entityNameBlueprintMap = CreateEntityBlueprintCache(settings.BlueprintFolder!);
-            }
-
-            IReadOnlyDictionary<string, IList<Playfield>> groupNamePlayfieldMap;
-            using (new Timer(t => AnsiConsole.WriteLine($"Loaded groupName playfield map in {t.TotalMilliseconds:n0}ms")))
-            {
-                groupNamePlayfieldMap = new ScenarioPlayfields(settings.ScenarioPath!).ReadGroupNamePlayfieldMap();
-            }
-
-            // Configure exporter
-            //
-            var exporter = ConfigureExporter(settings);
-            if (exporter == null)
-            {
-                AnsiConsole.WriteLine($"Error: Unsupported data exporter {settings.ExportType}");
+                AnsiConsole.WriteLine($"Error: {ex.Message}");
                 return 1;
-            }
-
-            exporter.SetHeader(["Name", "PoIs", "Playfield", 
-                "Trader Sells", "Trader Buys", 
-                "Required Items", "Reputation", "Restock Time"]);
-
-
-            // Well... time to get into it
-            foreach (var trader in traders.OrderBy(x => x.Name)) // TODO: Add localization support for OrderBy
-            {
-                if (trader == null)
-                    continue;
-
-                if (!entityNameBlueprintMap.TryGetValue(trader.Name, out List<BlueprintEntity>? entities) || entities == null)
-                    entities = [];
-
-                // Load each column entry
-                //
-                var name = trader.Name;
-                if (localization.TryLocalize(name, "English", out string? localizedName))
-                    name = $"{localizedName}\n({name})";
-
-                var poi = ParsePointsOfInterest(entities);
-                var playfields = ParsePlayfields(entities, groupNamePlayfieldMap);
-                var traderSells = ParseTraderSells(trader, localization);
-                var traderBuys = ParseTraderBuys(trader, localization);
-                var requiredItems = "Not Implemented Yet";
-                var reputation = "Not Implemented Yet";
-                var restockTime = ParseRestockTime(entities);
-
-                exporter.ExportRow([name, poi, playfields, traderSells, traderBuys, requiredItems, reputation, restockTime]);
-            }
-
-            using (new Timer(t => AnsiConsole.WriteLine($"Export to {settings.ExportType} finished in {t.TotalMilliseconds:n0}ms")))
-            {
-                exporter.Flush();
             }
 
             return 0;
         }
 
-        private static Dictionary<string, List<BlueprintEntity>> CreateEntityBlueprintCache(string folderName)
+        private class TradeSpreadsheetData
         {
-            var cache = new Dictionary<string, List<BlueprintEntity>>();
-            var blueprints = BlueprintSlim.ReadFolder(folderName);
+            private readonly ExportTraderSpreadsheetSettings _settings;
+            private readonly IDataExporter _exporter;
 
-            foreach (var ent in blueprints.SelectMany(x => x.Entities))
+            // Spreadsheet raw data
+            private readonly Localization _localization;
+            private readonly List<Trader> _traders;
+            private readonly List<Dialogue> _dialogues;
+            private readonly DialogueCache _dialogueCache;
+            private readonly Dictionary<string, List<BlueprintEntity>> _entityNameBlueprintMap;
+            private readonly IReadOnlyDictionary<string, IList<Playfield>> _groupNamePlayfieldMap;
+
+            public TradeSpreadsheetData(ExportTraderSpreadsheetSettings settings)
             {
-                if (!cache.TryGetValue(ent.Type, out List<BlueprintEntity>? value) || value == null)
-                    cache[ent.Type] = [ent];
-                else
-                    cache[ent.Type].Add(ent);
+                _settings = settings;
+
+                // Configure exporter
+                _exporter = settings.CreateExporter("TraderSpreadsheet")
+                    ?? throw new Exception($"Unsupported data exporter {settings.ExportType}");
+
+                // Preload all relevant data
+                //
+                // Localization
+                using (new Timer(t => AnsiConsole.WriteLine($"Loaded localization in {t.TotalMilliseconds:n0}ms")))
+                    _localization = new Localization(settings.LocalizationFilePath!);
+
+                // Configuration files
+                using (new Timer(t => AnsiConsole.WriteLine($"Loaded configuration files in {t.TotalMilliseconds:n0}ms")))
+                {
+                    _traders = Trader.ReadFile(settings.TraderFilePath).ToList();
+                    _dialogues = Dialogue.ReadFile(settings.DialogueFilePath).ToList();
+                    _dialogueCache = new DialogueCache(_dialogues);
+                }
+
+                // Blueprint & Playfield caches
+                using (new Timer(t => AnsiConsole.WriteLine($"Loaded entityName blueprint map in {t.TotalMilliseconds:n0}ms")))
+                    _entityNameBlueprintMap = BlueprintSlim.CreateEntityBlueprintCache(settings.BlueprintFolder!);
+
+                using (new Timer(t => AnsiConsole.WriteLine($"Loaded groupName playfield map in {t.TotalMilliseconds:n0}ms")))
+                    _groupNamePlayfieldMap = new ScenarioPlayfields(settings.ScenarioPath!).ReadGroupNamePlayfieldMap();
+
             }
 
-            return cache;
-        }
-
-        private static IDataExporter? ConfigureExporter(ExportTraderSpreadsheetSettings settings)
-        {
-            if (settings.ExportType != ExportType.Console && !Directory.Exists(settings.OutputPath))
-                Directory.CreateDirectory(settings.OutputPath);
-
-            IDataExporter? exporter = settings.ExportType switch
+            public void Export()
             {
-                ExportType.Console => new ConsoleExporter(),
-                ExportType.Csv => new CsvExporter(Path.Combine(settings.OutputPath!, "TraderSpreadsheet.csv")),
-                _ => null
-            };
+                _exporter.SetHeader(["Name", "PoIs", "Playfield",
+                    "Trader Sells", "Trader Buys",
+                    "Required Items", "Reputation", "Restock Time"]);
 
-            return exporter;
-        }
+                // Core list is every trader
+                foreach (var trader in _traders.OrderBy(x => x.Name)) // TODO: Add localization support for OrderBy
+                {
+                    if (trader == null)
+                        continue;
 
-        private static string ParsePointsOfInterest(List<BlueprintEntity> entities)
-        {
-            var sortedPois = entities
-                    .DistinctBy(ent => ent.FileName)
-                    .OrderBy(ent => ent.DisplayName)
-                    .Select(ent =>
+                    // Find which blueprints they're attached to
+                    if (!_entityNameBlueprintMap.TryGetValue(trader.Name, out List<BlueprintEntity>? entities) || entities == null)
+                        entities = [];
+
+                    // Load each column entry
+                    /*
+                    var name = trader.Name;
+                    if (_localization.TryLocalize(name, "English", out string? localizedName))
+                        name = $"{localizedName}\n({name})";
+                    */
+
+                    var name = ParseName(trader, entities);
+                    var poi = ParsePointsOfInterest(entities);
+                    var playfields = ParsePlayfields(entities);
+                    var traderSells = ParseTraderSells(trader);
+                    var traderBuys = ParseTraderBuys(trader);
+                    var requiredItems = ParseRequiredItems(entities);
+                    var reputation = ParseReputation(entities);
+                    var restockTime = ParseRestockTime(entities);
+
+                    // Export
+                    _exporter.ExportRow([name, poi, playfields, traderSells, traderBuys, requiredItems, reputation, restockTime]);
+                }
+
+                using (new Timer(t => AnsiConsole.WriteLine($"Export to {_settings.ExportType} finished in {t.TotalMilliseconds:n0}ms")))
+                    _exporter.Flush();
+            }
+
+            #region Column data parsers
+            private string ParseName(Trader trader, List<BlueprintEntity> entities)
+            {
+                var displayName = trader.Name;
+                if (_localization.TryLocalize(trader.Name, "English", out string? localizedName))
+                    displayName = localizedName;
+
+                var sb = new StringBuilder();
+                sb.AppendLine(displayName);
+                sb.AppendLine($"+ Key: {trader.Name}");
+                
+                foreach(var entity in entities
+                    .Where(x => x != null && !string.IsNullOrEmpty(x.Dialog))
+                    .DistinctBy(x => x.Dialog))
+                {
+                    sb.AppendLine($"+ Dialogue: {entity.Dialog}");
+                }
+
+                return sb.ToString();
+            }
+
+            private static string ParsePointsOfInterest(List<BlueprintEntity> entities)
+            {
+                var sortedPois = entities
+                        .DistinctBy(ent => ent.FileName)
+                        .OrderBy(ent => ent.DisplayName)
+                        .Select(ent =>
+                        {
+                            var count = entities.Count(x => x.FileName == ent.FileName);
+
+                            var sb = new StringBuilder();
+                            sb.Append($"{ent.DisplayName} ({Path.GetFileNameWithoutExtension(ent.FileName)})");
+
+                            if (count > 1)
+                                sb.Append($" x{count}");
+
+                            sb.Append($", {ent.Restock} restock");
+
+                            return sb.ToString();
+                        });
+
+                return string.Join('\n', sortedPois);
+            }
+
+            private string ParsePlayfields(List<BlueprintEntity> entities)
+            {
+                // TODO: Add PlanetType to EgsLib
+                static string ReadPlanetType(Playfield playfield)
+                {
+                    // Parse playfield_static.yaml
+                    var pfStatic = playfield.GetPlayfieldFile<PlayfieldStatic>()
+                        ?.Contents?.PlanetType;
+                    if (pfStatic != null)
                     {
-                        var count = entities.Count(x => x.FileName == ent.FileName);
+                        return pfStatic;
+                    }
+
+                    // Parse space_dynamic.yaml
+                    var spaceDynamic = playfield.GetPlayfieldFile<SpaceDynamic>()
+                        ?.Contents?.PlanetType;
+                    if (spaceDynamic != null)
+                    {
+                        return spaceDynamic;
+                    }
+
+                    // Parse old style playfield.yaml
+                    var pfObsolete = playfield.GetPlayfieldFile<PlayfieldObsoleteFormat>()
+                        ?.Contents?.PlanetType;
+                    if (pfObsolete != null)
+                    {
+                        return pfObsolete;
+                    }
+
+                    // Default to playfield folder name
+                    return playfield.Name;
+                }
+
+                var sortedPlayfields = entities
+                        .Where(ent => ent.GroupName != null)
+                        .SelectMany(ent =>
+                        {
+                            if (ent.GroupName == null
+                                || !_groupNamePlayfieldMap.TryGetValue(ent.GroupName, out IList<Playfield>? playfields)
+                                || playfields == null)
+                                playfields = [];
+
+                            return playfields;
+                        })
+                        .Select(pf => $"{ReadPlanetType(pf)} ({pf.PlayfieldType})")
+                        .Distinct()
+                        .OrderBy(x => x);
+
+                return string.Join('\n', sortedPlayfields);
+            }
+
+            private string ParseTraderSells(Trader trader)
+            {
+                var sellsRaw = trader.Items
+                    .Where(item => item.SellValue != Range<float>.Default)
+                    .Where(item => item.SellAmount != Range<int>.Default)
+                    .Select(item =>
+                    {
+                        var name = item.Name;
+                        if (_localization.TryLocalize(name, "English", out string? localizedName))
+                            name = localizedName;
 
                         var sb = new StringBuilder();
-                        sb.Append($"{ent.DisplayName} ({Path.GetFileNameWithoutExtension(ent.FileName)})");
+                        sb.Append($"{name}: ");
+                        if (item.SellMarketFactor)
+                            sb.Append("mf=");
 
-                        if (count > 1)
-                            sb.Append($" x{count}");
-
-                        sb.Append($", {ent.Restock} restock");
+                        sb.Append($"{item.SellValue}, ");
+                        sb.Append(item.SellAmount.ToString());
 
                         return sb.ToString();
                     });
 
-            return string.Join('\n', sortedPois);
-        }
-
-        private static string ParsePlayfields(List<BlueprintEntity> entities, IReadOnlyDictionary<string, IList<Playfield>> groupNamePlayfieldMap)
-        {
-            // TODO: Add PlanetType to EgsLib
-            static string ReadPlanetType(Playfield playfield)
-            {
-                // Parse playfield_static.yaml
-                var pfStatic = playfield.GetPlayfieldFile<PlayfieldStatic>()
-                    ?.Contents?.PlanetType;
-                if (pfStatic != null)
-                {
-                    return pfStatic;
-                }
-
-                // Parse space_dynamic.yaml
-                var spaceDynamic = playfield.GetPlayfieldFile<SpaceDynamic>()
-                    ?.Contents?.PlanetType;
-                if (spaceDynamic != null)
-                {
-                    return spaceDynamic;
-                }
-
-                // Parse old style playfield.yaml
-                var pfObsolete = playfield.GetPlayfieldFile<PlayfieldObsoleteFormat>()
-                    ?.Contents?.PlanetType;
-                if (pfObsolete != null)
-                {
-                    return pfObsolete;
-                }
-
-                // Default to playfield folder name
-                return playfield.Name;
+                return string.Join('\n', sellsRaw);
             }
 
-            var sortedPlayfields = entities
-                    .Where(ent => ent.GroupName != null)
-                    .SelectMany(ent =>
+            private string ParseTraderBuys(Trader trader)
+            {
+                var sellsRaw = trader.Items
+                    .Where(item => item.BuyValue != Range<float>.Default)
+                    .Where(item => item.BuyAmount != Range<int>.Default)
+                    .Select(item =>
                     {
-                        if (ent.GroupName == null
-                            || !groupNamePlayfieldMap.TryGetValue(ent.GroupName, out IList<Playfield>? playfields)
-                            || playfields == null)
-                            playfields = [];
+                        var name = item.Name;
+                        if (_localization.TryLocalize(name, "English", out string? localizedName))
+                            name = localizedName;
 
-                        return playfields;
-                    })
-                    .Select(pf => $"{ReadPlanetType(pf)} ({pf.PlayfieldType})")
-                    .Distinct()
-                    .OrderBy(x => x);
+                        var sb = new StringBuilder();
+                        sb.Append($"{name}: ");
+                        if (item.BuyMarketFactor)
+                            sb.Append("mf=");
 
-            return  string.Join('\n', sortedPlayfields);
-        }
+                        sb.Append($"{item.BuyValue}, ");
+                        sb.Append(item.BuyAmount.ToString());
 
-        private static string ParseTraderSells(Trader trader, Localization localization)
-        {
-            var sellsRaw = trader.Items
-                .Where(item => item.SellValue != Range<float>.Default)
-                .Where(item => item.SellAmount != Range<int>.Default)
-                .Select(item =>
+                        return sb.ToString();
+                    });
+
+                return string.Join('\n', sellsRaw);
+            }
+
+            private string ParseRequiredItems(List<BlueprintEntity> entities)
+            {
+                var dialogues = entities
+                    .Where(e => e.Dialog != null && e.Dialog.StartsWith("TD_") && e.Dialog.EndsWith("Start"))
+                    .DistinctBy(e => e.Dialog)
+                    .Select(e => _dialogueCache.RequiredItems(e.Dialog!))
+                    .Where(x => x != null)
+                    .SelectMany(x => x!.ToList())
+                    .OrderBy(x => x.Key);
+
+                var formatted = dialogues.Select(kvp =>
                 {
-                    var name = item.Name;
-                    if (localization.TryLocalize(name, "English", out string? localizedName))
-                        name = localizedName;
-
-                    var sb = new StringBuilder();
-                    sb.Append($"{name}: ");
-                    if (item.SellMarketFactor)
-                        sb.Append("mf=");
-
-                    sb.Append($"{item.SellValue}, ");
-                    sb.Append(item.SellAmount.ToString());
-
-                    return sb.ToString();
+                    var value = kvp.Value.Trim('"', '\r', '\n');
+                    return CreateItemRequirementString(kvp.Key, kvp.Value);
                 });
 
-            return string.Join('\n', sellsRaw);
-        }
+                return string.Join($"----------------------------------------{Environment.NewLine}", formatted);
+            }
 
-        private static string ParseTraderBuys(Trader trader, Localization localization)
-        {
-            var sellsRaw = trader.Items
-                .Where(item => item.BuyValue != Range<float>.Default)
-                .Where(item => item.BuyAmount != Range<int>.Default)
-                .Select(item =>
+            private static string CreateItemRequirementString(string key, string requirements)
+            {
+                static string SplitString(string value, string delimiter, string replacement)
                 {
-                    var name = item.Name;
-                    if (localization.TryLocalize(name, "English", out string? localizedName))
-                        name = localizedName;
-
                     var sb = new StringBuilder();
-                    sb.Append($"{name}: ");
-                    if (item.BuyMarketFactor)
-                        sb.Append("mf=");
-
-                    sb.Append($"{item.BuyValue}, ");
-                    sb.Append(item.BuyAmount.ToString());
+                    var split = value.Split(delimiter);
+                    for (int i = 0; i < split.Length; i++)
+                    {
+                        if (i == 0)
+                            sb.AppendLine($"  + {split[i]}");
+                        else
+                            sb.AppendLine($"  {replacement} {split[i]}");
+                    }
 
                     return sb.ToString();
-                });
+                }
 
-            return string.Join('\n', sellsRaw);
-        }
+                var sb = new StringBuilder();
+                sb.AppendLine($"{key}");
 
-        private static string ParseRestockTime(List<BlueprintEntity> entities)
-        {
-            var min = entities.Min(bp => bp.Restock) ?? 0;
-            var max = entities.Max(bp => bp.Restock) ?? 0;
-            var avg = (int)(entities.Average(bp => bp.Restock) ?? 0);
+                // Split these into multiple lines
+                if (requirements.Contains(" && "))
+                {
+                    var formatted = SplitString(requirements, " && ", "&");
+                    sb.Append(formatted);
+                }
+                else if(requirements.Contains(" || "))
+                {
+                    var formatted = SplitString(requirements, " || ", "||");
+                    sb.Append(formatted);
+                }
+                else
+                {
+                    sb.AppendLine($"  + {requirements}");
+                }
 
-            return $"Avg: {avg}\nMin: {min}\nMax: {max}";
+                return sb.ToString();
+            }
+
+            private string ParseReputation(List<BlueprintEntity> entities)
+            {
+                var reputations = entities
+                    .Where(e => e.Dialog != null)
+                    .DistinctBy(e => e.Dialog)
+                    .Select(e => _dialogueCache.RequiredReputation(e.Dialog!))
+                    .Where(x => x != null)
+                    .SelectMany(x => x!.ToList())
+                    .OrderBy(x => x.Key);
+
+                var sb = new StringBuilder();
+                foreach (var kvp in reputations)
+                {
+                    // key: Eden_TraderGreet
+                    // value: GetReputation(Faction.Trader) >= Reputation.FriendlyMin
+
+                    sb.AppendLine($"{kvp.Key}");
+
+                    // Clean up value
+                    // TODO: Clean this up with regex
+                    var cleaned = kvp.Value
+                        .Replace("GetReputation(Faction.", "")
+                        .Replace(")", "")
+                        .Replace("Reputation.", "");
+                    sb.AppendLine($"  + {cleaned}");
+                }
+
+                return sb.ToString();
+            }
+
+            private static string ParseRestockTime(List<BlueprintEntity> entities)
+            {
+                var min = entities.Min(bp => bp.Restock) ?? 0;
+                var max = entities.Max(bp => bp.Restock) ?? 0;
+                var avg = (int)(entities.Average(bp => bp.Restock) ?? 0);
+
+                return $"Avg: {avg}\nMin: {min}\nMax: {max}";
+            }
+            #endregion
         }
     }
 }

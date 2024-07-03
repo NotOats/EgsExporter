@@ -1,4 +1,5 @@
-﻿using Spectre.Console;
+﻿using EgsExporter.Exporters;
+using Spectre.Console;
 using Spectre.Console.Cli;
 using System;
 using System.Collections.Generic;
@@ -34,6 +35,21 @@ namespace EgsExporter.Commands
                 return ValidationResult.Error("ScenarioPath does not exist");
 
             return base.Validate();
+        }
+
+        internal IDataExporter? CreateExporter(string arg)
+        {
+            if (ExportType != ExportType.Console && !Directory.Exists(OutputPath))
+                Directory.CreateDirectory(OutputPath);
+
+            IDataExporter? exporter = ExportType switch
+            {
+                ExportType.Console => new ConsoleExporter(),
+                ExportType.Csv => new CsvExporter(Path.Combine(OutputPath!, $"{arg}.csv")),
+                _ => null
+            };
+
+            return exporter;
         }
     }
 
