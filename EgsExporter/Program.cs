@@ -15,6 +15,9 @@ app.Configure(config =>
         .WithDescription("Exports a fully functional Trader spreadsheet")
         .WithExample("trader-spreadsheet", @"""C:\Path\To\Empyrion - Galactic Survival""", "--type=Csv", "--output=\"./vanilla\"");
 
+    config.AddCommand<ExportPrefabLoot>("prefab-loot")
+        .WithDescription("Exports a breakdown of which prefab drops what loot");
+
 #if DEBUG
     config.PropagateExceptions();
     config.ValidateExamples();

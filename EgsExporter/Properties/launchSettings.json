@@ -10,6 +10,10 @@
     "Export - Trader Spreadsheet": {
       "commandName": "Project",
       "commandLineArgs": "trader-spreadsheet \"D:\\Games\\SteamLibrary\\steamapps\\workshop\\content\\383120\\3143225812\" --type=Csv"
+    },
+    "Export - Prefab Loot": {
+      "commandName": "Project",
+      "commandLineArgs": "prefab-loot \"D:\\Games\\SteamLibrary\\steamapps\\workshop\\content\\383120\\3143225812\" --type=Csv"
     }
   }
 }

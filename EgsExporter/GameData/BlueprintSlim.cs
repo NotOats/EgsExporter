@@ -1,8 +1,11 @@
-﻿using EgsLib.Blueprints;
+﻿using EgsLib;
+using EgsLib.Blueprints;
 using EgsLib.Blueprints.NbtTags;
+using Sylvan.Data.Csv;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -21,6 +24,15 @@ namespace EgsExporter.GameData
         public string DisplayName => BlueprintDisplayName ?? Path.GetFileNameWithoutExtension(FileName);
     }
 
+    internal readonly record struct LootContainer(Vector3<int> Location, int ContainerId);
+
+    internal record class BlueprintLoot(
+        string FileName, string? BlueprintDisplayName, string? GroupName, 
+        IReadOnlyList<LootContainer> LootContainers)
+    {
+        public string DisplayName => BlueprintDisplayName ?? Path.GetFileNameWithoutExtension(FileName);
+    }
+
     /// <summary>
     /// Lightweight version of Blueprint only holding what we need (skip most block data)
     /// </summary>
@@ -30,7 +42,8 @@ namespace EgsExporter.GameData
         public string? DisplayName { get; } = null;
         public string? GroupName { get; } = null;
 
-        public ReadOnlyCollection<BlueprintEntity> Entities { get; init; }
+        public ReadOnlyCollection<BlueprintEntity> Entities { get; }
+        public ReadOnlyCollection<LootContainer>? LootContainers { get; }
 
         public BlueprintSlim(string file)
         {
@@ -42,7 +55,7 @@ namespace EgsExporter.GameData
             FilePath = file;
 
             var bp = new Blueprint(file);
-            
+
             if (bp.Header.GetProperty<string>(PropertyName.DisplayName, out var displayName))
                 DisplayName = displayName;
 
@@ -50,6 +63,7 @@ namespace EgsExporter.GameData
                 GroupName = groupName;
 
             Entities = ParseEntities(bp, DisplayName, GroupName);
+            LootContainers = ParseLoot(bp, DisplayName, GroupName);
         }
 
         private static ReadOnlyCollection<BlueprintEntity> ParseEntities(Blueprint bp, string? displayName, string? groupName)
@@ -97,47 +111,93 @@ namespace EgsExporter.GameData
             var ents = list.FirstOrDefault(x => x.Name == "Ents");
             if (ents != null && ents is NbtString entities)
             {
-                foreach(var name in entities.Value.Split(','))
+                foreach (var name in entities.Value.Split(','))
                 {
                     yield return name;
                 }
             }
         }
 
-        public static IEnumerable<BlueprintSlim> ReadFolder(string blueprintFolder)
+        private static ReadOnlyCollection<LootContainer> ParseLoot(Blueprint bp, string? displayName, string? groupName)
         {
-            static BlueprintSlim? CreateBlueprintSlim(string file)
+            if (bp.BlockData == null)
+                return Array.Empty<LootContainer>().AsReadOnly();
+
+            var lootContainers = new List<LootContainer>();
+            foreach (var kvp in bp.BlockData.Entities)
             {
-                try
-                {
-                    return new BlueprintSlim(file);
-                }
-                catch (Exception)
-                {
-                    // TODO: Error handling
-                    //Console.WriteLine($"Failed to read {file}");
-                    return null;
-                }
+                var location = kvp.Key;
+                var tags = kvp.Value;
+
+                if (tags.FirstOrDefault(x => x.Name == "LootId") is not NbtInt32 tag)
+                    continue;
+
+                lootContainers.Add(new LootContainer(location, tag.Value));
             }
 
-            return Directory.EnumerateFiles(blueprintFolder, "*.epb")
+            return lootContainers.AsReadOnly();
+        }
+
+        private static BlueprintSlim? CreateBlueprintSlim(string file)
+        {
+            try
+            {
+                return new BlueprintSlim(file);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Dict of EntityName:BlueprintEntity
+        /// </summary>
+        /// <param name="folderName"></param>
+        /// <returns></returns>
+        public static Dictionary<string, List<BlueprintEntity>> CreateEntityBlueprintCache(string folderName)
+        {
+            var blueprints = Directory.EnumerateFiles(folderName, "*.epb")
                 .AsParallel()
                 .Select(CreateBlueprintSlim)
                 .Where(x => x != null)
                 .Cast<BlueprintSlim>();
-        }
 
-        public static Dictionary<string, List<BlueprintEntity>> CreateEntityBlueprintCache(string folderName)
-        {
             var cache = new Dictionary<string, List<BlueprintEntity>>();
-            var blueprints = BlueprintSlim.ReadFolder(folderName);
-
             foreach (var ent in blueprints.SelectMany(x => x.Entities))
             {
                 if (!cache.TryGetValue(ent.Type, out List<BlueprintEntity>? value) || value == null)
                     cache[ent.Type] = [ent];
                 else
                     cache[ent.Type].Add(ent);
+            }
+
+            return cache;
+        }
+
+        /// <summary>
+        /// Dict of BlueprintName:BlueprintLoot
+        /// </summary>
+        /// <param name="folderName"></param>
+        /// <returns></returns>
+        public static List<BlueprintLoot> CreateBlueprintLootList(string folderName)
+        {
+            var blueprints = Directory.EnumerateFiles(folderName, "*.epb")
+                .AsParallel()
+                .Select(CreateBlueprintSlim)
+                .Where(x => x != null)
+                .Cast<BlueprintSlim>();
+
+            var cache = new List<BlueprintLoot>();
+            foreach (var bp in blueprints)
+            {
+                if (bp.LootContainers == null)
+                    continue;
+
+                var loot = new BlueprintLoot(Path.GetFileNameWithoutExtension(bp.FilePath), 
+                    bp.DisplayName, bp.GroupName, bp.LootContainers);
+
+                cache.Add(loot);
             }
 
             return cache;
