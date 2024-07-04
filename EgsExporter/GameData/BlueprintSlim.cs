@@ -30,7 +30,8 @@ namespace EgsExporter.GameData
         string FileName, string? BlueprintDisplayName, string? GroupName, 
         IReadOnlyList<LootContainer> LootContainers)
     {
-        public string DisplayName => BlueprintDisplayName ?? Path.GetFileNameWithoutExtension(FileName);
+        public string DisplayName => string.IsNullOrWhiteSpace(BlueprintDisplayName) 
+            ? Path.GetFileNameWithoutExtension(FileName) : BlueprintDisplayName;
     }
 
     /// <summary>

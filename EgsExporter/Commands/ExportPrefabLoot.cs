@@ -132,40 +132,51 @@ namespace EgsExporter.Commands
             {
                 _exporter.SetHeader(["Blueprint", "Container", "Items", "Groups"]);
 
-                foreach (var bpLoot in _blueprintLootList)
+                var blueprintLoots = _blueprintLootList.OrderBy(x => x.DisplayName).ThenBy(x => x.FileName);
+                foreach (var bpLoot in blueprintLoots)
                 {
                     var name = $"{bpLoot.DisplayName}{Environment.NewLine}({Path.GetFileNameWithoutExtension(bpLoot.FileName)})";
 
                     foreach (var lootContainer in bpLoot.LootContainers)
                     {
-                        var container = $"{lootContainer.ContainerId} @ {lootContainer.Location}";
-
                         if (!_containers.TryFindById(lootContainer.ContainerId, out var containerDetails))
                             continue;
+                        
+                        var sb = new StringBuilder();
+                        sb.AppendLine($"Id: {lootContainer.ContainerId}");
+                        sb.AppendLine($"Pos: {lootContainer.Location}");
+                        sb.Append($"Rolls: {containerDetails.Count}");
+
+                        var container = $"{lootContainer.ContainerId} @ {lootContainer.Location}{Environment.NewLine}Count: {containerDetails.Count}";
 
                         var items = ParseContainerItems(containerDetails.Items, ContainerItemType.Item);
                         var groups = ParseContainerItems(containerDetails.Items, ContainerItemType.Group);
 
-                        _exporter.ExportRow([name, container, items, groups]);
+                        _exporter.ExportRow([name, sb.ToString(), items, groups]);
                     }
                 }
 
                 _exporter.Flush();
             }
 
-            public string ParseContainerItems(ContainerItem[] items, ContainerItemType type)
+            private string ParseContainerItems(ContainerItem[] items, ContainerItemType type)
             {
+                var maxWeight = items.Sum(x => x.Probability);
+
                 var sb = new StringBuilder();
                 foreach (var item in items.Where(x => x.Type == type))
                 {
-                    sb.Append($"{item.Name} -");
-                    sb.Append($" {(item.Probability * 100):n0}%");
+                    // TODO: Different language support
+                    var name = type == ContainerItemType.Item ? _localization.Localize(item.Name, "English") : item.Name;
+                    var realProbability = item.Probability / maxWeight * 100;
+
+                    sb.Append($"{item.Probability,4:f3} ({realProbability,3:f2}%) {name}");
 
                     if (item.Count != null)
                     {
                         var count = item.Count.Trim('"').Replace(",", " - ");
 
-                        sb.Append($", Count: {count}");
+                        sb.Append($" x ({count})");
                     }
 
                     sb.AppendLine();
