@@ -78,16 +78,16 @@ namespace EgsExporter.GameData
                 var tags = kvp.Value;
 
                 // Skip if we don't have Ent/Ents
-                if (tags.All(x => x.Name != "Ent" && x.Name != "Ents"))
+                if (tags.All(x => x?.Name != "Ent" && x?.Name != "Ents"))
                     continue;
 
                 // Require Type tag
-                if (tags.FirstOrDefault(x => x.Name == "Type") is not NbtString type)
+                if (tags.FirstOrDefault(x => x?.Name == "Type") is not NbtString type)
                     continue;
 
-                var pay = tags.FirstOrDefault(t => t.Name == "Pay") as NbtInt32;
-                var restock = tags.FirstOrDefault(t => t.Name == "Restock") as NbtInt32;
-                var dialog = tags.FirstOrDefault(t => t.Name == "Dlg") as NbtString;
+                var pay = tags.FirstOrDefault(t => t?.Name == "Pay") as NbtInt32;
+                var restock = tags.FirstOrDefault(t => t?.Name == "Restock") as NbtInt32;
+                var dialog = tags.FirstOrDefault(t => t?.Name == "Dlg") as NbtString;
 
                 // Loop through possible multiple names from "Ents" entries
                 foreach (var name in ReadEntityTag(tags))
@@ -104,12 +104,12 @@ namespace EgsExporter.GameData
         private static IEnumerable<string> ReadEntityTag(NbtList list)
         {
             // Handle single Ent
-            var ent = list.FirstOrDefault(tag => tag.Name == "Ent");
+            var ent = list.FirstOrDefault(tag => tag?.Name == "Ent");
             if (ent != null && ent is NbtString entity)
                 yield return entity.Value;
 
             // Parse out Ents possible commas
-            var ents = list.FirstOrDefault(x => x.Name == "Ents");
+            var ents = list.FirstOrDefault(x => x?.Name == "Ents");
             if (ents != null && ents is NbtString entities)
             {
                 foreach (var name in entities.Value.Split(','))
@@ -130,7 +130,7 @@ namespace EgsExporter.GameData
                 var location = kvp.Key;
                 var tags = kvp.Value;
 
-                if (tags.FirstOrDefault(x => x.Name == "LootId") is not NbtInt32 tag)
+                if (tags.FirstOrDefault(x => x?.Name == "LootId") is not NbtInt32 tag)
                     continue;
 
                 lootContainers.Add(new LootContainer(location, tag.Value));
