@@ -18,6 +18,9 @@ app.Configure(config =>
     config.AddCommand<ExportPrefabLoot>("prefab-loot")
         .WithDescription("Exports a breakdown of which prefab drops what loot");
 
+    config.AddCommand<FindSellers>("find-sellers")
+        .WithDescription("Exports a list of sellers and their locations for the specified item");
+
 #if DEBUG
     config.PropagateExceptions();
     config.ValidateExamples();

@@ -13,7 +13,11 @@
     },
     "Export - Prefab Loot": {
       "commandName": "Project",
-      "commandLineArgs": "prefab-loot \"D:\\Games\\SteamLibrary\\steamapps\\workshop\\content\\383120\\3143225812\" --type=Csv"
+      "commandLineArgs": "prefab-loot \"D:\\Games\\SteamLibrary\\steamapps\\workshop\\content\\383120\\3143225812\" --type=Console"
+    },
+    "Export - Find Sellers": {
+      "commandName": "Project",
+      "commandLineArgs": "find-sellers \"D:\\Games\\SteamLibrary\\steamapps\\workshop\\content\\383120\\3143225812\" \"Flux Coil\" --type=Console"
     }
   }
 }

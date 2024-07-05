@@ -12,9 +12,9 @@ namespace EgsExporter.Commands
 {
     public class BaseExportSettings : CommandSettings
     {
-        [CommandArgument(0, "[scenario_path]")]
+        [CommandArgument(0, "<scenario_path>")]
         [Description("Path to the scenario directory to export from")]
-        public string? ScenarioPath { get; set; }
+        public string ScenarioPath { get; set; } = string.Empty;
 
         [CommandOption("-o|--output")]
         [Description("Changes the export output directory")]
